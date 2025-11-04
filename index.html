@@ -1,0 +1,764 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Ajolotes en la nube</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: Arial, sans-serif;
+            background: #1a1a2e;
+            position: fixed;
+        }
+        
+        #gameCanvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            touch-action: none;
+            background: #1a1a2e;
+        }
+        
+        .controls {
+            position: fixed;
+            bottom: 20px;
+            width: 100%;
+            display: flex;
+            justify-content: space-between;
+            padding: 0 20px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        
+        .control-btn {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
+            border: 2px solid rgba(255, 255, 255, 0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: white;
+            pointer-events: all;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: manipulation;
+            font-weight: bold;
+        }
+        
+        .control-btn:active {
+            background: rgba(255, 255, 255, 0.5);
+            transform: scale(0.9);
+        }
+        
+        .dpad {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+            z-index: 1000;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .modal button {
+            display: block;
+            width: 100%;
+            margin: 10px 0;
+            padding: 15px;
+            border: none;
+            border-radius: 30px;
+            background: #4CAF50;
+            color: white;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .modal button:active {
+            background: #45a049;
+        }
+        
+        .question-option {
+            background: #2196F3;
+            margin: 5px 0;
+            padding: 10px;
+            font-size: 14px;
+        }
+        
+        .question-option:active {
+            background: #1976D2;
+        }
+        
+        .modal-text {
+            font-size: 16px;
+            margin-bottom: 15px;
+            color: #333;
+        }
+
+        #loadingScreen {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: #1a1a2e;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+            color: white;
+        }
+
+        .loading-text {
+            font-size: 24px;
+            margin-bottom: 20px;
+        }
+
+        .loading-bar {
+            width: 200px;
+            height: 10px;
+            background: rgba(255,255,255,0.3);
+            border-radius: 5px;
+            overflow: hidden;
+        }
+
+        .loading-progress {
+            height: 100%;
+            background: #4CAF50;
+            width: 0%;
+            transition: width 0.3s;
+        }
+    </style>
+</head>
+<body>
+    <div id="loadingScreen">
+        <div class="loading-text">Cargando juego...</div>
+        <div class="loading-bar">
+            <div class="loading-progress" id="loadingProgress"></div>
+        </div>
+    </div>
+
+    <canvas id="gameCanvas"></canvas>
+    
+    <div class="controls">
+        <div class="dpad">
+            <button class="control-btn" id="btnLeft">◀</button>
+            <button class="control-btn" id="btnRight">▶</button>
+        </div>
+        <button class="control-btn" id="btnJump">▲</button>
+    </div>
+    
+    <div id="endingModal" class="modal">
+        <h2>¡Felicitaciones!</h2>
+        <div id="endingStats"></div>
+        <button onclick="restartGame()">Jugar de nuevo</button>
+    </div>
+    
+    <div id="questionModal" class="modal">
+        <h3 id="questionTitle">Pregunta</h3>
+        <p id="questionText"></p>
+        <div id="questionOptions"></div>
+    </div>
+
+    <script>
+// Variables globales
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let imagesLoaded = 0;
+const totalImages = 8;
+
+// Configurar canvas
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resizeCanvas();
+
+// Controles
+const controls = {
+    left: false,
+    right: false,
+    jump: false
+};
+
+// Configurar controles móviles
+function setupMobileControls() {
+    const btnLeft = document.getElementById('btnLeft');
+    const btnRight = document.getElementById('btnRight');
+    const btnJump = document.getElementById('btnJump');
+    
+    // Eventos táctiles
+    btnLeft.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        controls.left = true;
+    });
+    btnLeft.addEventListener('touchend', () => controls.left = false);
+    
+    btnRight.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        controls.right = true;
+    });
+    btnRight.addEventListener('touchend', () => controls.right = false);
+    
+    btnJump.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        controls.jump = true;
+    });
+    btnJump.addEventListener('touchend', () => controls.jump = false);
+
+    // Eventos de mouse para pruebas en PC
+    btnLeft.addEventListener('mousedown', () => controls.left = true);
+    btnLeft.addEventListener('mouseup', () => controls.left = false);
+    btnRight.addEventListener('mousedown', () => controls.right = true);
+    btnRight.addEventListener('mouseup', () => controls.right = false);
+    btnJump.addEventListener('mousedown', () => controls.jump = true);
+    btnJump.addEventListener('mouseup', () => controls.jump = false);
+}
+
+// Función para actualizar progreso de carga
+function updateLoadingProgress() {
+    const progress = (imagesLoaded / totalImages) * 100;
+    document.getElementById('loadingProgress').style.width = progress + '%';
+    
+    if (imagesLoaded >= totalImages) {
+        setTimeout(() => {
+            document.getElementById('loadingScreen').style.display = 'none';
+            setupMobileControls();
+            gameLoop();
+        }, 500);
+    }
+}
+
+// Cargar imágenes con fallback
+const images = {};
+
+function loadImage(name, src) {
+    const img = new Image();
+    img.onload = () => {
+        imagesLoaded++;
+        updateLoadingProgress();
+    };
+    img.onerror = () => {
+        imagesLoaded++;
+        updateLoadingProgress();
+    };
+    img.src = src;
+    return img;
+}
+
+// Cargar todas las imágenes
+images.background = loadImage('background', 'font.jpg');
+images.grass = loadImage('grass', 'plad1.jpg');
+images.checkpoint = loadImage('checkpoint', 'poin.png');
+images.enemy = loadImage('enemy', 'enep.png');
+images.playerIdle = loadImage('playerIdle', 'depb.png');
+images.playerWalk1 = loadImage('playerWalk1', 'walk1.png');
+images.playerWalk2 = loadImage('playerWalk2', 'walk2.png');
+images.playerFall = loadImage('playerFall', 'depf.png');
+
+// Jugador
+const player = {
+    x: 50,
+    y: 640,
+    width: 60,
+    height: 60,
+    speed: 5,
+    jumping: false,
+    velocityY: 0,
+    jumpStrength: -15,
+    onGround: false,
+    currentFrame: 0,
+    frameCount: 0,
+    direction: 1,
+    invincible: false,
+    invincibilityTimer: 0,
+    isWalking: false,
+    walkAnimationSpeed: 10
+};
+
+// Variables del juego
+let gameIsPaused = false;
+let gameRunning = true;
+let currentCheckpoint = { x: 50, y: 640 };
+let modalVisible = false;
+let questionActive = false;
+let currentQuestionIndex = 0;
+
+// Preguntas para cada checkpoint
+const questions = [
+    {
+        question: "¿Que versiones de Claude Sonnet utilizamos?",
+        options: [
+            "3,7 y 4",
+            "4.5 y 4",
+            "4.5 y 4.1"
+        ],
+        correct: 1
+    },
+    {
+        question: "¿Como usamos Amazon Q?",
+        options: [
+            "Como extension en VS",
+            "Como aplicacion",
+            "Como IDE"
+        ],
+        correct: 0
+    },
+    {
+        question: "¿Como nos puede ayudar Amazon Q?",
+        options: [
+            "Vino a quitarnos trabajo",
+            "Para que el haga todo",
+            "Como asistente y agente"
+        ],
+        correct: 2
+    }
+];
+
+const camera = { x: 0, y: 0 };
+const levelWidth = 4000;
+const levelHeight = 800;
+
+// Plataformas
+const platforms = [
+    {x: 0, y: 700, width: 600, height: 100},
+    {x: 800, y: 700, width: 500, height: 100},
+    {x: 1500, y: 700, width: 600, height: 100},
+    {x: 2300, y: 700, width: 500, height: 100},
+    {x: 3000, y: 700, width: 600, height: 100},
+    {x: 3800, y: 700, width: 200, height: 100},
+    
+    {x: 300, y: 550, width: 200, height: 30},
+    {x: 600, y: 450, width: 150, height: 30},
+    {x: 900, y: 500, width: 180, height: 30},
+    {x: 1200, y: 400, width: 200, height: 30},
+    {x: 1600, y: 550, width: 150, height: 30},
+    {x: 1900, y: 350, width: 180, height: 30},
+    {x: 2200, y: 480, width: 160, height: 30},
+    {x: 2600, y: 400, width: 200, height: 30},
+    {x: 3100, y: 550, width: 150, height: 30},
+    {x: 3400, y: 450, width: 180, height: 30}
+];
+
+const movingPlatforms = [
+    {x: 700, y: 600, width: 100, height: 20, speed: 1, direction: 1, minX: 650, maxX: 750, vertical: false},
+    {x: 1400, y: 450, width: 100, height: 20, speed: 0.8, direction: 1, minY: 400, maxY: 500, vertical: true},
+    {x: 2500, y: 600, width: 100, height: 20, speed: 1.2, direction: 1, minX: 2450, maxX: 2550, vertical: false}
+];
+
+const checkpoints = [
+    {x: 1000, y: 350, width: 50, height: 50, collected: false},
+    {x: 2000, y: 300, width: 50, height: 50, collected: false},
+    {x: 3200, y: 350, width: 50, height: 50, collected: false}
+];
+
+const enemies = [
+    {x: 400, y: 620, width: 60, height: 60, speed: 2, direction: 1, leftLimit: 50, rightLimit: 550, alive: true},
+    {x: 1100, y: 620, width: 60, height: 60, speed: 2.5, direction: 1, leftLimit: 900, rightLimit: 1400, alive: true},
+    {x: 1800, y: 620, width: 60, height: 60, speed: 2.3, direction: 1, leftLimit: 1600, rightLimit: 2100, alive: true},
+    {x: 2700, y: 620, width: 60, height: 60, speed: 2.7, direction: 1, leftLimit: 2400, rightLimit: 2900, alive: true}
+];
+
+// Funciones del juego
+function updateEnemies() {
+    enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+        enemy.x += enemy.speed * enemy.direction;
+        if (enemy.x <= enemy.leftLimit || enemy.x + enemy.width >= enemy.rightLimit) {
+            enemy.direction *= -1;
+        }
+    });
+}
+
+function updateMovingPlatforms() {
+    movingPlatforms.forEach(platform => {
+        if (platform.vertical) {
+            platform.y += platform.speed * platform.direction;
+            if (platform.y <= platform.minY || platform.y >= platform.maxY) {
+                platform.direction *= -1;
+            }
+        } else {
+            platform.x += platform.speed * platform.direction;
+            if (platform.x <= platform.minX || platform.x >= platform.maxX) {
+                platform.direction *= -1;
+            }
+        }
+    });
+}
+
+function checkCollisions() {
+    player.onGround = false;
+    
+    [...platforms, ...movingPlatforms].forEach(platform => {
+        if (player.x < platform.x + platform.width &&
+            player.x + player.width > platform.x &&
+            player.y < platform.y + platform.height &&
+            player.y + player.height > platform.y) {
+            
+            if (player.velocityY > 0 && player.y < platform.y) {
+                player.y = platform.y - player.height;
+                player.velocityY = 0;
+                player.jumping = false;
+                player.onGround = true;
+            }
+        }
+    });
+    
+    // Colisiones con enemigos
+    enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+        
+        if (player.x < enemy.x + enemy.width &&
+            player.x + player.width > enemy.x &&
+            player.y < enemy.y + enemy.height &&
+            player.y + player.height > enemy.y) {
+            
+            if (player.velocityY > 0 && player.y < enemy.y - 10) {
+                enemy.alive = false;
+                player.velocityY = -8;
+            } else if (!player.invincible) {
+                resetToCheckpoint();
+            }
+        }
+    });
+    
+    // Checkpoints
+    checkpoints.forEach((checkpoint, index) => {
+        if (!checkpoint.collected &&
+            player.x < checkpoint.x + checkpoint.width &&
+            player.x + player.width > checkpoint.x &&
+            player.y < checkpoint.y + checkpoint.height &&
+            player.y + player.height > checkpoint.y) {
+            
+            showQuestion(index);
+        }
+    });
+    
+    if (player.y > levelHeight) {
+        resetToCheckpoint();
+    }
+    
+    if (player.x >= 3700) {
+        showEndingModal();
+    }
+}
+
+function resetToCheckpoint() {
+    player.x = currentCheckpoint.x;
+    player.y = currentCheckpoint.y;
+    player.velocityY = 0;
+    player.jumping = false;
+}
+
+function resetGame() {
+    player.x = 50;
+    player.y = 640;
+    player.velocityY = 0;
+    player.jumping = false;
+    player.invincible = false;
+    player.invincibilityTimer = 0;
+    currentCheckpoint = { x: 50, y: 640 };
+    checkpoints.forEach(checkpoint => checkpoint.collected = false);
+    enemies.forEach(enemy => enemy.alive = true);
+    camera.x = 0;
+    camera.y = 0;
+    gameRunning = true;
+    gameIsPaused = false;
+    modalVisible = false;
+    questionActive = false;
+    currentQuestionIndex = 0;
+}
+
+function showQuestion(checkpointIndex) {
+    gameIsPaused = true;
+    questionActive = true;
+    currentQuestionIndex = checkpointIndex;
+    
+    const question = questions[checkpointIndex];
+    document.getElementById('questionTitle').textContent = `Checkpoint ${checkpointIndex + 1}`;
+    document.getElementById('questionText').textContent = question.question;
+    
+    const optionsDiv = document.getElementById('questionOptions');
+    optionsDiv.innerHTML = '';
+    
+    question.options.forEach((option, index) => {
+        const button = document.createElement('button');
+        button.className = 'question-option';
+        button.textContent = `${String.fromCharCode(65 + index)}) ${option}`;
+        button.onclick = () => answerQuestion(index);
+        optionsDiv.appendChild(button);
+    });
+    
+    document.getElementById('questionModal').style.display = 'block';
+}
+
+function answerQuestion(selectedIndex) {
+    const question = questions[currentQuestionIndex];
+    
+    if (selectedIndex === question.correct) {
+        // Respuesta correcta
+        const checkpoint = checkpoints[currentQuestionIndex];
+        checkpoint.collected = true;
+        currentCheckpoint = { x: checkpoint.x, y: checkpoint.y - player.height };
+        player.invincible = true;
+        player.invincibilityTimer = 180;
+        
+        document.getElementById('questionModal').style.display = 'none';
+        gameIsPaused = false;
+        questionActive = false;
+    } else {
+        // Respuesta incorrecta - reiniciar nivel
+        document.getElementById('questionModal').style.display = 'none';
+        resetToCheckpoint();
+        gameIsPaused = false;
+        questionActive = false;
+    }
+}
+
+function showEndingModal() {
+    gameIsPaused = true;
+    modalVisible = true;
+    const collectedCheckpoints = checkpoints.filter(cp => cp.collected).length;
+    const killedEnemies = enemies.filter(enemy => !enemy.alive).length;
+    document.getElementById('endingStats').innerHTML = `
+        <p class="modal-text">¡Has completado el nivel!</p>
+        <p class="modal-text">Checkpoints: ${collectedCheckpoints}/${checkpoints.length}</p>
+        <p class="modal-text">Enemigos eliminados: ${killedEnemies}/${enemies.length}</p>
+    `;
+    document.getElementById('endingModal').style.display = 'block';
+}
+
+function closeEndingModal() {
+    document.getElementById('endingModal').style.display = 'none';
+    modalVisible = false;
+    gameRunning = false;
+}
+
+function restartGame() {
+    document.getElementById('endingModal').style.display = 'none';
+    resetGame();
+}
+
+function gameLoop() {
+    if (!gameRunning) return;
+    
+    if (gameIsPaused || questionActive) {
+        requestAnimationFrame(gameLoop);
+        return;
+    }
+    
+    player.isWalking = false;
+    
+    if (controls.left) {
+        player.x -= player.speed;
+        player.direction = -1;
+        player.isWalking = true;
+    }
+    if (controls.right) {
+        player.x += player.speed;
+        player.direction = 1;
+        player.isWalking = true;
+    }
+    
+    if (player.isWalking && player.onGround) {
+        player.frameCount++;
+        if (player.frameCount >= player.walkAnimationSpeed) {
+            player.currentFrame = (player.currentFrame + 1) % 2;
+            player.frameCount = 0;
+        }
+    } else {
+        player.currentFrame = 0;
+        player.frameCount = 0;
+    }
+    
+    if (controls.jump && player.onGround) {
+        player.velocityY = player.jumpStrength;
+        player.jumping = true;
+        player.onGround = false;
+        controls.jump = false;
+    }
+    
+    if (player.invincible) {
+        player.invincibilityTimer--;
+        if (player.invincibilityTimer <= 0) {
+            player.invincible = false;
+        }
+    }
+    
+    player.velocityY += 0.6;
+    player.y += player.velocityY;
+    
+    updateEnemies();
+    updateMovingPlatforms();
+    checkCollisions();
+    
+    camera.x = player.x - canvas.width / 2;
+    camera.y = player.y - canvas.height / 2;
+    
+    camera.x = Math.max(0, Math.min(camera.x, levelWidth - canvas.width));
+    camera.y = Math.max(0, Math.min(camera.y, levelHeight - canvas.height));
+    
+    render();
+    requestAnimationFrame(gameLoop);
+}
+
+function render() {
+    // Limpiar canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    // Fondo
+    if (images.background.complete && images.background.naturalWidth > 0) {
+        const bgWidth = images.background.naturalWidth;
+        const bgHeight = images.background.naturalHeight;
+        const startX = Math.floor(camera.x / bgWidth) * bgWidth - camera.x;
+        const startY = Math.floor(camera.y / bgHeight) * bgHeight - camera.y;
+        
+        for (let x = startX; x < canvas.width; x += bgWidth) {
+            for (let y = startY; y < canvas.height; y += bgHeight) {
+                ctx.drawImage(images.background, x, y);
+            }
+        }
+    } else {
+        const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+        gradient.addColorStop(0, '#1a1a2e');
+        gradient.addColorStop(0.5, '#16213e');
+        gradient.addColorStop(1, '#0f3460');
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+    
+    // Plataformas
+    [...platforms, ...movingPlatforms].forEach(platform => {
+        if (images.grass.complete && images.grass.naturalWidth > 0) {
+            ctx.drawImage(images.grass, platform.x - camera.x, platform.y - camera.y, platform.width, platform.height);
+        } else {
+            ctx.fillStyle = '#4a5d23';
+            ctx.fillRect(platform.x - camera.x, platform.y - camera.y, platform.width, platform.height);
+        }
+    });
+    
+    // Checkpoints
+    checkpoints.forEach(checkpoint => {
+        if (!checkpoint.collected) {
+            if (images.checkpoint.complete && images.checkpoint.naturalWidth > 0) {
+                ctx.drawImage(images.checkpoint, checkpoint.x - camera.x, checkpoint.y - camera.y, checkpoint.width, checkpoint.height);
+            } else {
+                ctx.fillStyle = 'gold';
+                ctx.fillRect(checkpoint.x - camera.x, checkpoint.y - camera.y, checkpoint.width, checkpoint.height);
+            }
+        }
+    });
+    
+    // Enemigos
+    enemies.forEach(enemy => {
+        if (!enemy.alive) return;
+        
+        const screenX = enemy.x - camera.x;
+        const screenY = enemy.y - camera.y;
+        
+        if (screenX > -enemy.width && screenX < canvas.width && screenY > -enemy.height && screenY < canvas.height) {
+            if (images.enemy.complete && images.enemy.naturalWidth > 0) {
+                ctx.save();
+                if (enemy.direction === -1) {
+                    ctx.scale(-1, 1);
+                    ctx.drawImage(images.enemy, -(screenX + enemy.width), screenY, enemy.width, enemy.height);
+                } else {
+                    ctx.drawImage(images.enemy, screenX, screenY, enemy.width, enemy.height);
+                }
+                ctx.restore();
+            } else {
+                ctx.fillStyle = '#ff4444';
+                ctx.fillRect(screenX, screenY, enemy.width, enemy.height);
+            }
+        }
+    });
+    
+    // Jugador
+    let currentImage = images.playerIdle;
+    if (player.jumping && player.velocityY < 0) {
+        currentImage = images.playerIdle;
+    } else if (player.velocityY > 0) {
+        currentImage = images.playerFall;
+    } else if (player.isWalking && player.onGround) {
+        currentImage = player.currentFrame === 0 ? images.playerWalk1 : images.playerWalk2;
+    }
+    
+    ctx.save();
+    
+    if (player.invincible && Math.floor(player.invincibilityTimer / 10) % 2 === 0) {
+        ctx.globalAlpha = 0.5;
+    }
+    
+    if (currentImage.complete && currentImage.naturalWidth > 0) {
+        if (player.direction === -1) {
+            ctx.scale(-1, 1);
+            ctx.drawImage(currentImage, -(player.x - camera.x + player.width), player.y - camera.y, player.width, player.height);
+        } else {
+            ctx.drawImage(currentImage, player.x - camera.x, player.y - camera.y, player.width, player.height);
+        }
+    } else {
+        ctx.fillStyle = '#0066ff';
+        ctx.fillRect(player.x - camera.x, player.y - camera.y, player.width, player.height);
+    }
+    
+    ctx.restore();
+    
+    // UI
+    if (player.invincible) {
+        ctx.fillStyle = 'rgba(255, 215, 0, 0.8)';
+        ctx.fillRect(10, 10, 150, 25);
+        ctx.fillStyle = 'black';
+        ctx.font = '14px Arial';
+        ctx.textAlign = 'left';
+        ctx.fillText(`Invencible: ${Math.ceil(player.invincibilityTimer / 60)}s`, 15, 28);
+    }
+    
+    // Meta
+    ctx.fillStyle = 'gold';
+    ctx.fillRect(3700 - camera.x, 500 - camera.y, 10, 200);
+    ctx.fillStyle = 'white';
+    ctx.font = '18px Arial';
+    ctx.textAlign = 'center';
+    ctx.fillText('META', 3705 - camera.x, 490 - camera.y);
+}
+
+// Eventos
+window.addEventListener('resize', resizeCanvas);
+window.addEventListener('orientationchange', () => {
+    setTimeout(resizeCanvas, 100);
+});
+
+// Prevenir zoom en iOS
+document.addEventListener('gesturestart', function (e) {
+    e.preventDefault();
+});
+
+// Inicializar carga
+updateLoadingProgress();
+    </script>
+</body>
+</html>
